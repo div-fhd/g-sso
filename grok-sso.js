@@ -3,73 +3,19 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
 chromium.use(StealthPlugin());
 
-const CONCURRENCY = 3;
+const CONCURRENCY = 5;
 
 function loadAccounts(filePath) {
   return fs.readFileSync(filePath, 'utf8')
     .split('\n').map(l => l.trim()).filter(Boolean)
     .map(line => {
       const [login, password, email, mailpassword, authtoken, twofa] = line.split(':');
-      return { login, password, email, mailpassword, authtoken, twofa, format: 'F1' };
+      return { login, password, email, mailpassword, authtoken, twofa };
     });
 }
 
-async function verifyAuth(page) {
-  try {
-    await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: 15000 });
-    await page.waitForTimeout(2000);
-  } catch {
-    return false;
-  }
-  const url = page.url();
-  const isLoggedIn = url.includes('/home') && !url.includes('/login');
-  console.log(`[AUTH] ${url} — ${isLoggedIn ? 'VALID' : 'INVALID'}`);
-  return isLoggedIn;
-}
-
-async function grokAuth(page) {
-  await page.goto('https://accounts.x.ai/sign-in?redirect=grok-com', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2000);
-
-  await page.evaluate(() => {
-    const reject = document.getElementById('onetrust-reject-all-handler');
-    if (reject) reject.click();
-  });
-  await page.waitForTimeout(1000);
-
-  await page.locator('button.min-h-10[class*="--btn-bg:hsl"]').click();
-}
-
-async function authorizeApp(page) {
-  // انتظر إما زر الموافقة أو redirect مباشر لـ grok.com
-  const result = await Promise.race([
-    page.waitForSelector('[data-testid="OAuth_Consent_Button"]', {
-      state: 'visible', timeout: 10000
-    }).then(() => 'consent'),
-    page.waitForURL(url => url.includes('grok.com'), {
-      timeout: 10000
-    }).then(() => 'already_authorized'),
-  ]).catch(() => 'timeout');
-
-  if (result === 'already_authorized') {
-    console.log('[OAUTH] Already authorized — redirect direct');
-    return;
-  }
-
-  if (result === 'timeout') {
-    throw new Error('OAuth timeout');
-  }
-
-  const btn = await page.$('[data-testid="OAuth_Consent_Button"]');
-  await Promise.all([
-    page.waitForURL(url => url.includes('grok.com'), { timeout: 30000 }),
-    btn.click()
-  ]);
-  console.log('[OAUTH] Authorized — URL:', page.url());
-}
-
 async function processAccount(account) {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     locale: 'en-US',
@@ -88,33 +34,72 @@ async function processAccount(account) {
   const page = await context.newPage();
 
   try {
-    const isValid = await verifyAuth(page);
-    if (!isValid) {
-      console.log(`[SKIP] ${account.login} — token invalid`);
+    // ===== Step 1: تحقق من التوكن =====
+    console.log(`[${account.login}] Checking auth token...`);
+    try {
+      await page.goto('https://x.com/home', { waitUntil: 'domcontentloaded', timeout: 15000 });
+    } catch {
+      console.log(`[${account.login}] SKIP — timeout on x.com`);
       return { login: account.login, status: 'skipped' };
     }
 
-    await grokAuth(page);
-    await authorizeApp(page);
+    await page.waitForTimeout(2000);
+    const isValid = page.url().includes('/home') && !page.url().includes('/login');
 
-    await page.waitForLoadState('domcontentloaded');
+    if (!isValid) {
+      console.log(`[${account.login}] SKIP — token invalid`);
+      return { login: account.login, status: 'skipped' };
+    }
+    console.log(`[${account.login}] Token valid`);
+
+    // ===== Step 2: افتح Grok sign-in =====
+    console.log(`[${account.login}] Opening Grok sign-in...`);
+    await page.goto('https://accounts.x.ai/sign-in?redirect=grok-com', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(2000);
 
+    // اغلق cookie popup
+    await page.evaluate(() => {
+      const btn = document.getElementById('onetrust-reject-all-handler');
+      if (btn) btn.click();
+    });
+    await page.waitForTimeout(1000);
+
+    // ===== Step 3: اضغط Login with X =====
+    console.log(`[${account.login}] Clicking Login with X...`);
+    await page.locator('button.min-h-10[class*="--btn-bg:hsl"]').click();
+    await page.waitForTimeout(3000);
+
+    // ===== Step 4: اضغط Authorize app =====
+    console.log(`[${account.login}] Waiting for Authorize button...`);
+    const btn = await page.waitForSelector(
+      '[data-testid="OAuth_Consent_Button"]',
+      { state: 'visible', timeout: 15000 }
+    );
+    console.log(`[${account.login}] Clicking Authorize app...`);
+    await btn.click();
+
+    // انتظر وصول grok.com
+    await page.waitForURL(url => url.includes('grok.com'), { timeout: 30000 });
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(2000);
+    console.log(`[${account.login}] Reached grok.com`);
+
+    // ===== Step 5: احفظ SSO =====
     const cookies = await context.cookies(['https://grok.com']);
     const sso = cookies.find(c => c.name === 'sso');
 
     if (sso) {
-      console.log(`[SUCCESS] ${account.login} — SSO: ${sso.value.substring(0, 30)}...`);
+      console.log(`[${account.login}] SUCCESS — SSO saved`);
       fs.appendFileSync('results.txt', `${account.login}:${sso.value}\n`);
-      return { login: account.login, status: 'success', sso: sso.value };
+      return { login: account.login, status: 'success' };
     }
 
-    console.log(`[NO_SSO] ${account.login} — no sso cookie found`);
+    console.log(`[${account.login}] NO_SSO — cookie not found`);
     return { login: account.login, status: 'no_sso' };
 
   } catch (err) {
-    console.log(`[ERROR] ${account.login} — ${err.message.split('\n')[0]}`);
-    return { login: account.login, status: 'error', error: err.message };
+    console.log(`[${account.login}] ERROR — ${err.message.split('\n')[0]}`);
+    return { login: account.login, status: 'error' };
 
   } finally {
     await context.clearCookies();
@@ -130,9 +115,8 @@ async function runQueue(accounts, concurrency) {
   async function worker() {
     while (queue.length > 0) {
       const account = queue.shift();
-      console.log(`[QUEUE] ${account.login} — remaining: ${queue.length}`);
-      const result = await processAccount(account);
-      results.push(result);
+      console.log(`\n[QUEUE] Processing: ${account.login} — remaining: ${queue.length}`);
+      results.push(await processAccount(account));
     }
   }
 
@@ -142,18 +126,16 @@ async function runQueue(accounts, concurrency) {
 
 (async () => {
   const accounts = loadAccounts('accounts.txt');
-  console.log(`[START] ${accounts.length} accounts — concurrency: ${CONCURRENCY}`);
-
-  // امسح الملف القديم
   if (fs.existsSync('results.txt')) fs.unlinkSync('results.txt');
 
+  console.log(`[START] ${accounts.length} accounts — concurrency: ${CONCURRENCY}\n`);
   const results = await runQueue(accounts, CONCURRENCY);
 
-  const success = results.filter(r => r.status === 'success').length;
-  const skipped = results.filter(r => r.status === 'skipped').length;
-  const noSso   = results.filter(r => r.status === 'no_sso').length;
-  const errors  = results.filter(r => r.status === 'error').length;
+  const s = results.filter(r => r.status === 'success').length;
+  const sk = results.filter(r => r.status === 'skipped').length;
+  const e = results.filter(r => r.status === 'error').length;
+  const n = results.filter(r => r.status === 'no_sso').length;
 
-  console.log(`\n[DONE] success=${success} skipped=${skipped} no_sso=${noSso} errors=${errors}`);
+  console.log(`\n[DONE] success=${s} skipped=${sk} no_sso=${n} errors=${e}`);
   console.log('[SAVED] results.txt');
 })();
