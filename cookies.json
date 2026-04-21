@@ -1,0 +1,13 @@
+[
+  {
+    "name": "sso",
+    "value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzZXNzaW9uX2lkIjoiZjU1YjlhMzgtNjc1Yi00NTA3LTg2OWQtMjc3MDgxY2U0NjBlIn0.gwhpYsdWZodaOAr5R5G_60CCLk8P1rEzr8Bso2TqjaA",
+    "domain": ".grok.com",
+    "path": "/",
+    "expires": 1792320845.281477,
+    "httpOnly": true,
+    "secure": true,
+    "sameSite": "Lax"
+  }
+ 
+]
