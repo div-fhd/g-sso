@@ -1,9 +1,11 @@
 const { chromium } = require('playwright-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs');
+const path = require('path');
+const os = require('os');
 chromium.use(StealthPlugin());
 
-const CONCURRENCY = 5;
+const CONCURRENCY = 10;
 
 function loadAccounts(filePath) {
   return fs.readFileSync(filePath, 'utf8')
@@ -15,8 +17,11 @@ function loadAccounts(filePath) {
 }
 
 async function processAccount(account) {
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
+  // مجلد مؤقت فريد لكل حساب
+  const userDataDir = path.join(os.tmpdir(), `xops_${account.login}_${Date.now()}`);
+
+  const context = await chromium.launchPersistentContext(userDataDir, {
+    headless: true,
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     locale: 'en-US',
     timezoneId: 'America/New_York',
@@ -55,7 +60,7 @@ async function processAccount(account) {
     // ===== Step 2: افتح Grok sign-in =====
     console.log(`[${account.login}] Opening Grok sign-in...`);
     await page.goto('https://accounts.x.ai/sign-in?redirect=grok-com', { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(10000);
 
     // اغلق cookie popup
     await page.evaluate(() => {
@@ -73,15 +78,15 @@ async function processAccount(account) {
     console.log(`[${account.login}] Waiting for Authorize button...`);
     const btn = await page.waitForSelector(
       '[data-testid="OAuth_Consent_Button"]',
-      { state: 'visible', timeout: 15000 }
+      { state: 'visible', timeout: 10000 }
     );
     console.log(`[${account.login}] Clicking Authorize app...`);
     await btn.click();
 
     // انتظر وصول grok.com
-    await page.waitForURL(url => url.includes('grok.com'), { timeout: 30000 });
-    await page.waitForLoadState('domcontentloaded');
-    await page.waitForTimeout(2000);
+    // await page.waitForURL(url => url.includes('grok.com'), { timeout: 30000 });
+    // await page.waitForLoadState('domcontentloaded');
+    await page.waitForTimeout(10000);
     console.log(`[${account.login}] Reached grok.com`);
 
     // ===== Step 5: احفظ SSO =====
@@ -102,9 +107,9 @@ async function processAccount(account) {
     return { login: account.login, status: 'error' };
 
   } finally {
-    await context.clearCookies();
     await context.close();
-    await browser.close();
+    // امسح المجلد المؤقت بعد الإغلاق
+    fs.rmSync(userDataDir, { recursive: true, force: true });
   }
 }
 
@@ -131,10 +136,10 @@ async function runQueue(accounts, concurrency) {
   console.log(`[START] ${accounts.length} accounts — concurrency: ${CONCURRENCY}\n`);
   const results = await runQueue(accounts, CONCURRENCY);
 
-  const s = results.filter(r => r.status === 'success').length;
+  const s  = results.filter(r => r.status === 'success').length;
   const sk = results.filter(r => r.status === 'skipped').length;
-  const e = results.filter(r => r.status === 'error').length;
-  const n = results.filter(r => r.status === 'no_sso').length;
+  const e  = results.filter(r => r.status === 'error').length;
+  const n  = results.filter(r => r.status === 'no_sso').length;
 
   console.log(`\n[DONE] success=${s} skipped=${sk} no_sso=${n} errors=${e}`);
   console.log('[SAVED] results.txt');
