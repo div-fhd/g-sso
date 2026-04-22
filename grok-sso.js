@@ -72,13 +72,13 @@ async function processAccount(account) {
     // ===== Step 3: اضغط Login with X =====
     console.log(`[${account.login}] Clicking Login with X...`);
     await page.locator('button.min-h-10[class*="--btn-bg:hsl"]').click();
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(10000);
 
     // ===== Step 4: اضغط Authorize app =====
     console.log(`[${account.login}] Waiting for Authorize button...`);
     const btn = await page.waitForSelector(
       '[data-testid="OAuth_Consent_Button"]',
-      { state: 'visible', timeout: 10000 }
+      { state: 'visible', timeout: 15000 }
     );
     console.log(`[${account.login}] Clicking Authorize app...`);
     await btn.click();
