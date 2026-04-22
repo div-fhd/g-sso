@@ -5,7 +5,7 @@ const path = require('path');
 const os = require('os');
 chromium.use(StealthPlugin());
 
-const CONCURRENCY = 10;
+const CONCURRENCY = 5;
 
 function loadAccounts(filePath) {
   return fs.readFileSync(filePath, 'utf8')
