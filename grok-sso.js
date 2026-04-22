@@ -73,7 +73,7 @@ async function processAccount(account) {
     console.log(`[${account.login}] Clicking Login with X...`);
     await page.locator('button.min-h-10[class*="--btn-bg:hsl"]').click();
     await page.waitForTimeout(10000);
-
+  
     // ===== Step 4: اضغط Authorize app =====
     console.log(`[${account.login}] Waiting for Authorize button...`);
     const btn = await page.waitForSelector(
