@@ -48,7 +48,7 @@ async function processAccount(account) {
       return { login: account.login, status: 'skipped' };
     }
 
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(10000);
     const isValid = page.url().includes('/home') && !page.url().includes('/login');
 
     if (!isValid) {
