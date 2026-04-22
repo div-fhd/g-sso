@@ -22,6 +22,7 @@ async function processAccount(account) {
 
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'], // مطلوب على Linux
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     locale: 'en-US',
     timezoneId: 'America/New_York',
